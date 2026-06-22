@@ -86,32 +86,61 @@ def gather(cat):
 
 # ---- the figures the partner sees ------------------------------------------
 def key_figures(cat, g):
-    """The six that carry the story, in narrative order, each with its caption."""
-    return [
-        (views.fig_opportunity_map(cat, g["labels"], g["k"]),
-         "Where AI helps. Tasks placed by how automatable they are against how "
-         "much effort they carry, grouped into the three blocks the firm's own "
-         "data separates into: Automate, Augment, Protect."),
-        (views.fig_readiness_map(),
-         "Whether the tooling is there yet. The opportunity is only real where "
-         "capable tooling already runs on project data; the rest is watch-and-wait "
-         "or needs the firm's data in order first."),
-        (views.fig_cost_saved(),
-         "The measured cost base by stage (hours times band cost rate) and the "
-         "releasable capacity on top. The cost base is arithmetic on the firm's "
-         "timesheet; the released fraction is the labelled projection."),
-        (views.fig_savings_bands(),
-         "The business case as a band, never a single number: capacity released "
-         "under low, expected and high adoption."),
-        (views.fig_capacity_conversion(),
-         "Released hours are not money until converted. The margin route avoids "
-         "salary cost and needs fewer hours; the growth route re-sells the freed "
-         "time as fee and needs a pipeline. Doing neither reabsorbs the time."),
-        (views.fig_roadmap(),
-         "The sequenced roadmap: act now where capable tooling runs on project "
-         "data, watch where the value or the tooling is not there yet, and build "
-         "foundations where the AI needs the firm's own data in order first."),
-    ]
+    """The figures that carry the story, keyed by name with their captions. The
+    automatability axis (can AI do the cognitive work) and the autonomy axis (how
+    end-to-end the tooling is) are kept on separate figures on purpose: the
+    opportunity map is the durable 'can it be done' read, while readiness and the
+    climb carry the 2026 'is the tooling there yet, and where is it heading'."""
+    return {
+        "opportunity": (views.fig_opportunity_map(cat, g["labels"], g["k"]),
+            "Where AI helps. Tasks placed by how automatable they are against how "
+            "much effort they carry, grouped into the three blocks the firm's own "
+            "data separates into: Automate, Augment, Protect. The axis is the "
+            "durable read on whether AI can do the cognitive work, not on how "
+            "advanced today's tooling is, which the next two figures cover."),
+        "readiness": (views.fig_readiness_map(),
+            "Whether the tooling is there yet (2026). Automatability across, tool "
+            "autonomy now up the side, bubble size is effort. The opportunity is "
+            "only live in the top-right; the rest is watch-and-wait or needs the "
+            "firm's data in order first."),
+        "climb": (views.fig_computation_climb(),
+            "The same tooling as a trajectory, 2022 to 2026. Most tasks have "
+            "climbed from assistive toward generative and agentic, which is the "
+            "'why now'. The upper rungs are cognitive and agentic-RAG tools that "
+            "run on the firm's own data, so the climb doubles as the argument for "
+            "getting that data in order."),
+        "cost": (views.fig_cost_saved(),
+            "The measured cost base by stage (hours times band cost rate) and the "
+            "releasable capacity on top. The cost base is arithmetic on the firm's "
+            "timesheet; the released fraction is the labelled projection."),
+        "savings": (views.fig_savings_bands(),
+            "The business case as a band, never a single number: capacity released "
+            "under low, expected and high adoption."),
+        "conversion": (views.fig_capacity_conversion(),
+            "Released hours are not money until converted. The margin route avoids "
+            "salary cost and needs fewer hours; the growth route re-sells the freed "
+            "time as fee and needs a pipeline. Doing neither reabsorbs the time."),
+        "roadmap": (views.fig_roadmap(),
+            "The sequenced roadmap: act now where capable tooling runs on project "
+            "data, watch where the value or the tooling is not there yet, and build "
+            "foundations where the AI needs the firm's own data in order first."),
+        "flow": (views.fig_activity_flow(),
+            "How work actually moves, with the rework loops a linear stage view "
+            "cannot show (red). Effort is where work accumulates in the long run. "
+            "This is a value-stream map of the practice."),
+        "influence": (views.fig_influence_graph(),
+            "Which activities force change in which others. Node size is systemic "
+            "criticality (higher-order, loops included); the hub is risky to change "
+            "because the rework runs through it. Edge weights are elicited in the "
+            "workshop, so this orders the work, it does not measure it."),
+    }
+
+
+def _figure(figs, key):
+    """One embedded figure block, looked up by name."""
+    p, cap = figs[key]
+    return (f"<figure><img src='data:image/png;base64,{_b64(p)}'>"
+            f"<figcaption>{_html.escape(cap)}</figcaption></figure>")
 
 
 # ---- HTML assembly ---------------------------------------------------------
@@ -196,10 +225,7 @@ def build_html(cat, g, figs):
     exp = g["totals"]["expected"]
     warn_html = "".join(
         f"<div class=warn>Data note: {_html.escape(w)}</div>" for w in g["warnings"])
-    fig_blocks = "".join(
-        f"<figure><img src='data:image/png;base64,{_b64(p)}'>"
-        f"<figcaption>{_html.escape(cap)}</figcaption></figure>"
-        for p, cap in figs)
+    F = lambda k: _figure(figs, k)
 
     return f"""<!doctype html><html lang=en><head><meta charset=utf-8>
 <title>Datum diagnostic</title><style>{CSS}</style></head><body>
@@ -240,20 +266,23 @@ into three blocks rather than five.</p>
 augmentable middle, and {_pct(s['nonroutine'])} is judgement work to protect. The two
 automatable figures are kept separate on purpose: collapsing them overstates what AI can
 safely take on.</p>
-{fig_blocks.split('</figure>')[0]}</figure>
+{F('opportunity')}
 
-<h2>2 &nbsp; Whether the tooling is ready</h2>
+<h2>2 &nbsp; Whether the tooling is ready, and where it is heading</h2>
 <p>Being automatable in principle is not the same as having tooling that works on the
 firm's projects today. The readiness map separates the opportunity that is live now from
-the opportunity that waits on better tooling or on the firm's own data.</p>
-{fig_blocks.split('</figure>')[1]}</figure>
+the opportunity that waits on better tooling or on the firm's own data. The climb beside
+it shows the same tooling as a trajectory: how far each task has moved from 2022 to 2026,
+which is why the conversation is live now rather than two years ago.</p>
+{F('readiness')}
+{F('climb')}
 
 <h2>3 &nbsp; The measured cost base</h2>
 <p>Cost per stage is hours times band cost rate, summed over the people who booked to the
 stage. <span class="tag measured">measured</span> This is arithmetic on the firm's
 timesheet, not a model.</p>
 {_cost_table(g)}
-{fig_blocks.split('</figure>')[2]}</figure>
+{F('cost')}
 
 <h2>4 &nbsp; The business case, as a band</h2>
 <p>The releasable fraction of each stage is automatability times tool autonomy, taken up
@@ -261,7 +290,7 @@ by an adoption rate. <span class="tag elicited">elicited</span> Autonomy and ado
 elicited in the workshop, so the case is reported as a band under low, expected and high
 adoption, never as a single number.</p>
 {_scenario_table(g)}
-{fig_blocks.split('</figure>')[3]}</figure>
+{F('savings')}
 
 <h2>5 &nbsp; The conversion decision</h2>
 <p>Released capacity is hours. It becomes value only through one of two routes, each with a
@@ -270,14 +299,26 @@ precondition.</p>
 <div class=kpi><span class=n>{_gbp(cv['margin_value'])}</span><span class=l>Margin route: salary cost avoided. Needs fewer hours booked. In the firm's control.</span></div>
 <div class=kpi><span class=n>{_gbp(cv['growth_value'])}</span><span class=l>Growth route: freed time re-sold as fee. Worth more per hour, needs a pipeline.</span></div>
 </div>
-{fig_blocks.split('</figure>')[4]}</figure>
+{F('conversion')}
 
 <h2>6 &nbsp; The sequenced roadmap</h2>
 <p>What to do, and in what order. The honest conclusion is that the cognitive and agentic
 tooling, the upper rungs with the most value, run on the firm's own structured data. The
 firm cannot reach them without that data in a usable state, which is where the
 needs-foundations lane and the data-readiness recommendation begin.</p>
-{fig_blocks.split('</figure>')[5]}</figure>
+{F('roadmap')}
+
+<h2>7 &nbsp; Sequencing lens: what is risky to change</h2>
+<p>A second lens, for ordering the work rather than sizing it.
+<span class="tag elicited">elicited</span> Where the opportunity map says what to automate,
+this says what is safe to automate first. Work in this practice does not run in a line; it
+loops, and the loops are where automating around an unstable process backfires. The flow
+below is a value-stream map of the practice with those rework loops made visible, and the
+influence graph sizes each activity by how much of the system runs through it. Both rest on
+judgement elicited in the workshop, made comparable, and are never presented as
+measurement.</p>
+{F('flow')}
+{F('influence')}
 
 <h2>Method and the honesty of inputs</h2>
 <p>Three kinds of input go into this diagnostic, and the report states which is which
