@@ -1,0 +1,6 @@
+# Pinned to the versions Datum is tested against (2026-06-22).
+# Floors, not exact pins, so security patches still apply.
+numpy>=2.4,<3
+matplotlib>=3.10,<4
+networkx>=3.6,<4
+pyyaml>=6.0,<7          # YAML client configs (the example uses one); JSON works without it

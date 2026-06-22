@@ -1,0 +1,23 @@
+# Datum client inputs. Copy and edit per engagement.
+# Framework (task classes, the grid, the 2026 proposals) stays in code; only
+# the firm's measured data and elicited assumptions go here.
+
+timesheet_csv: timesheet.csv      # hours by band by stage (relative to this file)
+
+band_rates:                       # COST to the firm, GBP per hour (salary based)
+  Part I: 24
+  Part II: 32
+  Architect: 42
+  Associate: 58
+  Director: 85
+
+fee_multiplier: 2.8               # charge-out / cost, for the growth route
+
+adoption:                         # elicited in the workshop, fraction in [0,1]
+  low: 0.30
+  expected: 0.55
+  high: 0.80
+
+autonomy:                         # optional, elicited; omitted tasks use defaults
+  Coordinating spatial and technical systems: 0.85
+  Producing technical documentation: 0.80

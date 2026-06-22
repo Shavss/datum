@@ -1,0 +1,10 @@
+# Generated artefacts (reproduced by run.py / report.py)
+figures/
+datum_report.html
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store

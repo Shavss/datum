@@ -1,0 +1,16 @@
+band,stage,hours
+Part I,Concept Design,1200
+Part I,Technical Design,2100
+Part I,Spatial Coordination,900
+Part II,Technical Design,2600
+Part II,Spatial Coordination,1400
+Part II,Manufacturing + Construction,1100
+Architect,Concept Design,1800
+Architect,Technical Design,3000
+Architect,Manufacturing + Construction,1600
+Associate,Preparation + Briefing,900
+Associate,Concept Design,1100
+Associate,Handover,600
+Director,Strategic Definition,700
+Director,Preparation + Briefing,500
+Director,Handover,400
