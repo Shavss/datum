@@ -31,6 +31,7 @@ from model import task_catalogue, task_future
 # Set when the data source is a single-project export ingested via ingest.apply,
 # so the report frames itself as a pilot proof rather than a practice diagnostic.
 PILOT = False
+CURRENCY = "&pound;"            # overridden per data source (e.g. CA$ on ingest)
 
 
 def _b64(path):
@@ -39,7 +40,7 @@ def _b64(path):
 
 
 def _gbp(x):
-    return f"&pound;{x:,.0f}"
+    return f"{CURRENCY}{x:,.0f}"
 
 
 def _pct(x, dp=0):
@@ -238,6 +239,8 @@ def build_html(cat, g, figs):
                      "and the practice-wide picture firm up once finance rates and "
                      "further projects are added.</div>") + warn_html
     F = lambda k: _figure(figs, k)
+    yr = "" if g.get("pilot") else " a year"        # one project is not an annual base
+    yrk = "measured cost base" if g.get("pilot") else "measured cost base / year"
 
     return f"""<!doctype html><html lang=en><head><meta charset=utf-8>
 <title>Datum diagnostic</title><style>{CSS}</style></head><body>
@@ -249,7 +252,7 @@ def build_html(cat, g, figs):
 
 <div class=decision>
 <p class=lead style="margin-top:0"><b>The decision.</b> The measured cost base across
-the priority stages is <b>{_gbp(g['base_cost'])}</b> a year over {g['total_hours']:,.0f}
+the priority stages is <b>{_gbp(g['base_cost'])}</b>{yr} over {g['total_hours']:,.0f}
 booked hours. At expected adoption the work could be delivered with about
 <b>{exp['saved_hours']:,.0f} fewer hours</b>, worth <b>{_gbp(exp['saved_cost'])}</b> of
 salaried capacity ({_pct(exp['saved_cost']/exp['cost'])} of the base). That capacity is
@@ -260,7 +263,7 @@ order to act.</p>
 </div>
 
 <div class=kpis>
-<div class=kpi><span class=n>{_gbp(g['base_cost'])}</span><span class=l>measured cost base / year</span></div>
+<div class=kpi><span class=n>{_gbp(g['base_cost'])}</span><span class=l>{yrk}</span></div>
 <div class=kpi><span class=n>{_pct(s['routine']+s['oversight'])}</span><span class=l>effort that is automatable (with oversight)</span></div>
 <div class=kpi><span class=n>{_pct(s['nonroutine'])}</span><span class=l>judgement work to protect</span></div>
 <div class=kpi><span class=n>{_pct(g['freed_frac'])}</span><span class=l>redeployable capacity at 70% adoption</span></div>
@@ -356,12 +359,13 @@ AI-readiness diagnostic; the soft inputs are elicited and labelled as such.</p>
 
 
 def main():
-    global PILOT
+    global PILOT, CURRENCY
     arg = sys.argv[1] if len(sys.argv) > 1 else None
     if arg and arg.endswith(".csv"):
         import ingest
         b = ingest.apply(arg)                  # raw export -> inputs + measured effort
         PILOT = True
+        CURRENCY = getattr(ingest, "CURRENCY", CURRENCY)
         print(ingest.coverage_report(b))
         print()
     elif arg:
@@ -374,8 +378,10 @@ def main():
     out = "datum_report.html"
     with open(out, "w") as f:
         f.write(html)
+    cur = CURRENCY.replace("&pound;", "GBP")
+    period = "" if PILOT else "/year"
     print(f"wrote {out}  (data source: {g['source']})")
-    print(f"  measured cost base: GBP {g['base_cost']/1e6:.2f}M/year")
+    print(f"  measured cost base: {cur}{g['base_cost']:,.0f}{period}")
     print(f"  released at expected adoption: {g['totals']['expected']['saved_hours']:,.0f} h")
     print(f"  open in a browser and Print to PDF for the handover copy")
 

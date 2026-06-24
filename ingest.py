@@ -108,11 +108,15 @@ _NO_TASK = {"Non-billable", "Travel", "Extra/Additional Work"}
 
 # ---- 4. salary-cost rates (PROVISIONAL) ------------------------------------
 # The export's rate column is CHARGE-OUT, not cost. The cost base and the
-# margin / growth logic need salary cost. These are placeholders to be replaced
-# with the firm's finance figures; until then the cost base is provisional and
-# the report says so.
-SALARY_COST_RATES = {            # GBP/hour equivalent, salary based - PLACEHOLDER
-    "Part I": 24, "Part II": 32, "Architect": 42, "Associate": 58, "Director": 85,
+# margin / growth logic need salary cost. These placeholders are derived from
+# this firm's own hours-weighted charge-out per band divided by 2.8 (a typical
+# charge-out / cost ratio), so the pilot shows believable numbers in the right
+# currency. REPLACE with finance figures: fully-loaded hourly cost per band, i.e.
+# (annual salary x on-cost factor) / annual productive hours. Until then the cost
+# base is provisional and the report says so.
+CURRENCY = "CA$"                 # the export is Canadian
+SALARY_COST_RATES = {            # CA$/hour, salary based - PLACEHOLDER, replace
+    "Part I": 38, "Part II": 42, "Architect": 51, "Associate": 57, "Director": 91,
 }
 RATES_ARE_PROVISIONAL = True
 
