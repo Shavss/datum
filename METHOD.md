@@ -373,6 +373,37 @@ they are data, not assumptions; they come from the firm.
 
 ---
 
+## 11. Ingesting a real export (the adapter)
+
+**Source.** `ingest.py`. A real timesheet does not speak band / RIBA-stage /
+hours; it carries the firm's own role titles, project-phase names, and a free
+activity column, and its rate column is charge-out, not salary cost. The adapter
+reconciles the two so the engine never sees a firm-specific string.
+
+Three mapping tables, all editable at the top of the file, all **judgement**:
+
+- `ROLE_TO_BAND` — the firm's roles to Datum's five bands. Year tags
+  ("Associate 2023") and whitespace are normalised first (`_canon_role`).
+- `PHASE_TO_STAGE` — the firm's project phases to RIBA stages. Anything left out
+  (e.g. "Additional Scope") is excluded from the base and reported.
+- `ACTIVITY_TO_TASK` — the activity column to Bernstein tasks. This is what
+  **removes the even-split placeholder** from section 3: task effort becomes the
+  real logged hours per activity, not a guess. Lossy by nature (one word stands
+  for a task); the dominant bucket is marked `(!)` in the file.
+
+`model.set_measured(stage_hours, task_hours)` injects the result, so the
+classification views run on the firm's real effort. `ingest.coverage_report`
+prints every value, where it mapped, and what did not, with the unmapped hours as
+a percentage. **Verify that report before trusting any number.**
+
+**Salary-cost rates are provisional.** The export has charge-out only, so
+`SALARY_COST_RATES` in `ingest.py` is a labelled placeholder. Until finance
+supplies cost rates, the cost base and the margin/growth values are provisional,
+and the report says so in the pilot banner. Charge-out is never used as cost.
+
+Run: `python report.py <export>.csv` ingests, prints the coverage report, and
+writes the pilot deliverable in one step.
+
 ## What to verify first
 
 1. **The grid cells** in `_GRID_SPEC` against Bernstein Figure 1.5.3. Spot-check

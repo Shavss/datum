@@ -28,6 +28,10 @@ import inputs as _inp
 import views
 from model import task_catalogue, task_future
 
+# Set when the data source is a single-project export ingested via ingest.apply,
+# so the report frames itself as a pilot proof rather than a practice diagnostic.
+PILOT = False
+
 
 def _b64(path):
     with open(path, "rb") as f:
@@ -81,7 +85,8 @@ def gather(cat):
                    nonroutine=nonroutine),
         freed_frac=(cur.sum() - fut.sum()),
         blocks=blocks, labels=labels, k=k,
-        warnings=getattr(C.INPUTS, "warnings", []), source=C.INPUTS.source)
+        warnings=getattr(C.INPUTS, "warnings", []), source=C.INPUTS.source,
+        pilot=PILOT)
 
 
 # ---- the figures the partner sees ------------------------------------------
@@ -225,6 +230,13 @@ def build_html(cat, g, figs):
     exp = g["totals"]["expected"]
     warn_html = "".join(
         f"<div class=warn>Data note: {_html.escape(w)}</div>" for w in g["warnings"])
+    if g.get("pilot"):
+        warn_html = ("<div class=warn><b>Single-project pilot.</b> This runs on one "
+                     "project's timesheet, not the whole practice, and the salary-cost "
+                     "rates are provisional placeholders (the export carries charge-out "
+                     "only). It proves the method end to end on real data; the cost base "
+                     "and the practice-wide picture firm up once finance rates and "
+                     "further projects are added.</div>") + warn_html
     F = lambda k: _figure(figs, k)
 
     return f"""<!doctype html><html lang=en><head><meta charset=utf-8>
@@ -344,8 +356,16 @@ AI-readiness diagnostic; the soft inputs are elicited and labelled as such.</p>
 
 
 def main():
-    if len(sys.argv) > 1:
-        C.set_inputs(_inp.load_inputs(sys.argv[1]))
+    global PILOT
+    arg = sys.argv[1] if len(sys.argv) > 1 else None
+    if arg and arg.endswith(".csv"):
+        import ingest
+        b = ingest.apply(arg)                  # raw export -> inputs + measured effort
+        PILOT = True
+        print(ingest.coverage_report(b))
+        print()
+    elif arg:
+        C.set_inputs(_inp.load_inputs(arg))    # a yaml/json client config
     theme.apply_theme()
     cat = task_catalogue()
     g = gather(cat)

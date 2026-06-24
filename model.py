@@ -11,6 +11,19 @@ import numpy as np
 import bernstein as B
 import timesheets as TS
 
+# Measured overrides, injected by an ingest adapter. None -> the dummy timesheet.
+# When set, the classification views run on the firm's real effort rather than the
+# even-split placeholder: stage effort from real stage hours, task effort from the
+# activity-column split (model no longer guesses the within-stage distribution).
+_MEASURED_STAGE_HOURS = None        # np.array length NS
+_MEASURED_TASK_HOURS = None         # {task: hours}
+
+
+def set_measured(stage_hours=None, task_hours=None):
+    global _MEASURED_STAGE_HOURS, _MEASURED_TASK_HOURS
+    _MEASURED_STAGE_HOURS = stage_hours
+    _MEASURED_TASK_HOURS = task_hours
+
 
 def steady_state(transition):
     n = transition.shape[0]
@@ -27,7 +40,7 @@ def steady_state(transition):
 
 
 def stage_effort():
-    h = TS.STAGE_HOURS
+    h = TS.STAGE_HOURS if _MEASURED_STAGE_HOURS is None else _MEASURED_STAGE_HOURS
     return h / h.sum()
 
 
@@ -76,14 +89,22 @@ def _action_from_auto(a):
 
 
 def task_catalogue():
-    eff_stage = stage_effort()
-    active = active_tasks_by_stage()
     task_eff = {t: 0.0 for t in B.TASK_STAGE}
-    for s in range(B.NS):
-        if active[s]:
-            share = eff_stage[s] / len(active[s])
-            for t in active[s]:
-                task_eff[t] += share
+    if _MEASURED_TASK_HOURS:
+        # measured split from the activity column; tasks with no logged hours stay
+        # at zero, which is honest for a single-project pilot.
+        tot = sum(_MEASURED_TASK_HOURS.values()) or 1.0
+        for t, h in _MEASURED_TASK_HOURS.items():
+            if t in task_eff:
+                task_eff[t] = h / tot
+    else:
+        eff_stage = stage_effort()
+        active = active_tasks_by_stage()
+        for s in range(B.NS):
+            if active[s]:
+                share = eff_stage[s] / len(active[s])
+                for t in active[s]:
+                    task_eff[t] += share
     cat = []
     for g, t in B.TASK_ORDER:
         cells = B.TASK_STAGE[t]

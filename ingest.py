@@ -1,0 +1,265 @@
+"""
+ingest.py - adapter for a real practice timesheet export (Datum service layer).
+
+The engine speaks band / RIBA-stage / hours. A real export does not: it carries
+the firm's own role titles, its own project-phase names, and a free activity
+column, and its rate column is charge-out, not salary cost. This adapter is the
+one place that messy reality is reconciled with the clean engine, so the model
+never sees a firm-specific string.
+
+It is built against the JSE-001 export (Raff-style timesheet tool, 14 columns,
+no header). Point it at another firm's export by editing the three mapping tables
+below; nothing downstream changes.
+
+THE THREE MAPPINGS ARE JUDGEMENT, NOT MECHANISM. They are exposed at the top, not
+buried, because signing them off is the billable conversation with the firm. Run
+`python ingest.py example_client/timesheets.csv` to print the coverage report:
+every role, phase and activity, where it mapped, and what did not map. Verify that
+before trusting any number built on it.
+
+Honesty of inputs (unchanged):
+  measured     hours, and the stage / task effort split derived from them
+  provisional  the salary-cost rates (the file has charge-out only; finance must
+               supply cost; SALARY_COST_RATES below is a labelled placeholder)
+  elicited     autonomy and adoption, as before, from the workshop
+"""
+import csv
+import os
+from collections import defaultdict
+
+import bernstein as B
+
+# ---- column layout of this export (0-indexed, no header row) ---------------
+COL = dict(name=0, date=1, code=2, project=3, role=4, rate=5, hours=6,
+           amount=7, activity=8, billable=9, phase=10, feetype=11, desc=12)
+
+
+# ---- 1. ROLE -> Datum band -------------------------------------------------
+# Datum bands, junior to senior: Part I, Part II, Architect, Associate, Director.
+# Year tags ("Associate 2023") and spacing are normalised before lookup. Marked
+# (?) are the calls most worth a second look with the firm.
+ROLE_TO_BAND = {
+    "Intern": "Part I",
+    "Project Designer": "Part II",          # unlicensed designer
+    "Junior Architect": "Architect",        # newly licensed
+    "Junior Arch": "Architect",
+    "Intermediate Architect": "Architect",
+    "Intermediate Arch": "Architect",
+    "Senior Architect": "Architect",        # (?) could be Associate
+    "Project Manager": "Associate",         # (?) function not grade; rate ~ Associate
+    "Associate": "Associate",
+    "Principal": "Director",
+}
+
+
+# ---- 2. project PHASE -> RIBA stage (Datum B.STAGES name) ------------------
+# Canadian / OAA phases do not line up one-to-one with RIBA. Most are clean; the
+# (?) lines are judgement. Permits & Approvals has no native RIBA home.
+PHASE_TO_STAGE = {
+    "1 - Pre-Design": "Preparation + Briefing",
+    "2 - Schematic Design": "Concept Design",
+    "3 - Design Development": "Spatial Coordination",
+    "4 - Construction Documentation": "Technical Design",
+    "5 - Permits & Approvals": "Technical Design",      # (?) permit drawings are technical
+    "7 - Construction Administration": "Manufacturing + Construction",
+    "10 - Interior Design": "Technical Design",         # negligible hours
+    # "11 - Additional Scope": intentionally unmapped -> excluded from the base
+}
+
+
+# ---- 3. ACTIVITY -> Bernstein task (removes the even-split placeholder) -----
+# Lossy by nature: one activity word stands for a task. The dominant bucket,
+# "Design Work" (28% of rows), is the call that moves the most, marked (!). Edit
+# freely; unmapped activities are reported and excluded from the task split.
+ACTIVITY_TO_TASK = {
+    "Design Work": "Coordinating spatial and technical systems",     # (!) dominant; detailed design in DD/CD
+    "Specialized Design": "Coordinating spatial and technical systems",
+    "Internal Meeting": "Assigning and coordinating work",
+    "Meeting Preparation": "Assigning and coordinating work",
+    "Project Planning": "Managing project staffing resources",
+    "Administration": "Managing practice operations",
+    "Principal Hours": "Reviewing and approving technical documents",  # (?) principal oversight
+    "Client Communications": "Meeting / managing clients and decisions",
+    "Client Meeting": "Meeting / managing clients and decisions",
+    "Consultant Coordination and Communications": "Coordinating consultants and others",
+    "Contractor Communications": "Reviewing construction progress",
+    "Construction Drawings": "Producing technical documentation",
+    "Building Permit Drawings": "Producing technical documentation",
+    "Measured Drawings": "Analysing and understanding the brief",     # existing-conditions survey
+    "Site Plan": "Producing technical documentation",
+    "Authorities Communication": "Coordinating with regulators",
+    "Committee of Adjustment Process": "Coordinating with regulators",
+    "Approvals Process": "Coordinating with regulators",
+    "Building Permit Process": "Coordinating with regulators",
+    "PPR or ZC Process": "Coordinating with regulators",
+    "Zoning Review": "Coordinating with regulators",
+    "Building Code Review": "Evaluating / integrating technical considerations",
+    "Products and Materials": "Evaluating / integrating technical considerations",
+    "Library / Samples / Resources": "Evaluating / integrating technical considerations",
+    "Material Review": "Reviewing and approving technical documents",
+    "Drawing Review": "Reviewing and approving technical documents",
+    "Site Meeting": "Reviewing construction progress",
+    "Research": "Analysing and understanding the brief",
+    # Non-billable, Travel, Extra/Additional Work: real hours but no task home;
+    # they count toward stage cost but are excluded from the task-effort split.
+}
+_NO_TASK = {"Non-billable", "Travel", "Extra/Additional Work"}
+
+
+# ---- 4. salary-cost rates (PROVISIONAL) ------------------------------------
+# The export's rate column is CHARGE-OUT, not cost. The cost base and the
+# margin / growth logic need salary cost. These are placeholders to be replaced
+# with the firm's finance figures; until then the cost base is provisional and
+# the report says so.
+SALARY_COST_RATES = {            # GBP/hour equivalent, salary based - PLACEHOLDER
+    "Part I": 24, "Part II": 32, "Architect": 42, "Associate": 58, "Director": 85,
+}
+RATES_ARE_PROVISIONAL = True
+
+
+def _canon_role(raw):
+    """Strip year tags and whitespace, then look up. Returns (band or None)."""
+    s = raw.strip()
+    for tag in ("2021", "2022", "2023", "2024", "2025"):
+        s = s.replace(tag, "")
+    s = " ".join(s.split())
+    return ROLE_TO_BAND.get(s)
+
+
+def read_raw(path):
+    rows = []
+    with open(path, newline="") as f:
+        for r in csv.reader(f):
+            if len(r) <= COL["desc"]:
+                continue
+            try:
+                h = float(r[COL["hours"]])
+            except ValueError:
+                continue
+            rows.append(dict(role=r[COL["role"]], phase=r[COL["phase"]].strip(),
+                             activity=r[COL["activity"]].strip(), hours=h))
+    return rows
+
+
+def build(path):
+    """Map a raw export into the engine's vocabulary. Returns a dict with the
+    band/stage timesheet, the task-hours split, and a coverage report listing
+    every value that did or did not map."""
+    raw = read_raw(path)
+    timesheet = []                      # {band, stage, hours} for cost + stage effort
+    task_hours = defaultdict(float)     # task -> hours, the measured split
+    unmapped = dict(role=defaultdict(float), phase=defaultdict(float),
+                    activity=defaultdict(float))
+    mapped = dict(role=defaultdict(float), phase=defaultdict(float),
+                  activity=defaultdict(float))
+    total = 0.0
+
+    for r in raw:
+        total += r["hours"]
+        band = _canon_role(r["role"])
+        stage = PHASE_TO_STAGE.get(r["phase"])
+        if band is None:
+            unmapped["role"][r["role"].strip()] += r["hours"]
+        else:
+            mapped["role"][r["role"].strip()] += r["hours"]
+        if stage is None:
+            unmapped["phase"][r["phase"]] += r["hours"]
+        else:
+            mapped["phase"][r["phase"]] += r["hours"]
+
+        if band is not None and stage is not None:
+            timesheet.append(dict(band=band, stage=stage, hours=r["hours"]))
+
+        act = r["activity"]
+        if act in _NO_TASK:
+            mapped["activity"][act] += r["hours"]          # counted, no task home
+        elif act in ACTIVITY_TO_TASK:
+            task_hours[ACTIVITY_TO_TASK[act]] += r["hours"]
+            mapped["activity"][act] += r["hours"]
+        else:
+            unmapped["activity"][act] += r["hours"]
+
+    return dict(timesheet=timesheet, task_hours=dict(task_hours),
+                mapped=mapped, unmapped=unmapped, total_hours=total,
+                n_rows=len(raw), source=os.path.basename(path))
+
+
+# ---- coverage report (verify the mappings before trusting the numbers) -----
+def _section(title, mp, un):
+    out = [f"\n{title}"]
+    cov = sum(mp.values())
+    for k, v in sorted(mp.items(), key=lambda kv: -kv[1]):
+        out.append(f"  ok   {v:8.0f} h  {k}")
+    for k, v in sorted(un.items(), key=lambda kv: -kv[1]):
+        out.append(f"  ??   {v:8.0f} h  {k}   [UNMAPPED]")
+    un_h = sum(un.values())
+    out.append(f"  ---- mapped {cov:,.0f} h, unmapped {un_h:,.0f} h "
+               f"({un_h/(cov+un_h)*100 if cov+un_h else 0:.1f}% of hours)")
+    return "\n".join(out)
+
+
+def coverage_report(b):
+    L = ["=" * 78,
+         f"INGEST COVERAGE - {b['source']}  ({b['n_rows']} rows, {b['total_hours']:,.0f} h)",
+         "=" * 78,
+         _section("ROLE -> band", b["mapped"]["role"], b["unmapped"]["role"]),
+         _section("PHASE -> RIBA stage", b["mapped"]["phase"], b["unmapped"]["phase"]),
+         _section("ACTIVITY -> Bernstein task", b["mapped"]["activity"], b["unmapped"]["activity"])]
+    # task split summary
+    th = b["task_hours"]
+    L.append("\nTASK SPLIT (measured, replaces the even-split placeholder):")
+    for t, h in sorted(th.items(), key=lambda kv: -kv[1]):
+        L.append(f"  {h:8.0f} h  {t}")
+    L.append(f"  ---- {sum(th.values()):,.0f} h assigned to {len(th)} of {len(B.TASK_STAGE)} tasks")
+    if RATES_ARE_PROVISIONAL:
+        L.append("\nNOTE: salary-cost rates are PROVISIONAL placeholders (the export has "
+                 "charge-out only).\n      Replace SALARY_COST_RATES with finance figures "
+                 "before the cost base is real.")
+    return "\n".join(L)
+
+
+# ---- bridge to the engine --------------------------------------------------
+def to_client_inputs(b):
+    """A validated ClientInputs from the mapped export: real hours, provisional
+    salary-cost rates, default elicited assumptions (replaced in the workshop)."""
+    import inputs as _inp
+    import tooling as TL
+    ci = _inp.ClientInputs(
+        timesheet=b["timesheet"],
+        band_rates=dict(SALARY_COST_RATES),
+        fee_multiplier=2.8,
+        adoption={"low": 0.30, "expected": 0.55, "high": 0.80},
+        autonomy=dict(TL.AUTONOMY_2026),
+        source=b["source"] + (" (pilot, provisional rates)" if RATES_ARE_PROVISIONAL
+                              else " (pilot)"))
+    return _inp.validate(ci)
+
+
+def stage_hours_array(b):
+    """Real hours per RIBA stage index, for model.set_measured."""
+    import numpy as np
+    arr = np.zeros(B.NS)
+    idx = {n: i for i, n in enumerate(B.STAGES)}
+    for r in b["timesheet"]:
+        arr[idx[r["stage"]]] += r["hours"]
+    return arr
+
+
+def apply(path):
+    """Ingest a raw export and wire it into the engine (cost inputs + measured
+    effort overrides). Returns the build dict for the coverage report and framing."""
+    import model as M
+    import cost as C
+    b = build(path)
+    C.set_inputs(to_client_inputs(b))
+    M.set_measured(stage_hours=stage_hours_array(b), task_hours=b["task_hours"])
+    return b
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) < 2:
+        print("usage: python ingest.py <raw_timesheet.csv>")
+        raise SystemExit(1)
+    b = build(sys.argv[1])
+    print(coverage_report(b))
