@@ -150,6 +150,7 @@ RATES_ARE_PROVISIONAL = True
 # name. Two conversion assumptions, editable, to confirm with finance:
 ON_COST_FACTOR = 1.20            # employer CPP/EI/benefits/pension over salary+bonus
 UTILISATION = 0.72              # productive (billable) fraction of paid hours (~1500/2080)
+_DEFAULTS = dict(on_cost=ON_COST_FACTOR, util=UTILISATION, currency=CURRENCY)
 
 
 def load_salaries(path):
@@ -378,12 +379,15 @@ def to_client_inputs(b):
     rates = dict(SALARY_COST_RATES)
     rates.update(derived)                       # derived overrides placeholder per band
     real = bool(derived)
+    cfg = b.get("engagement", {})               # elicited inputs from the workshop
+    autonomy = dict(TL.AUTONOMY_2026)
+    autonomy.update(cfg.get("autonomy", {}))
     ci = _inp.ClientInputs(
         timesheet=b["timesheet"],
         band_rates=rates,
-        fee_multiplier=2.8,
-        adoption={"low": 0.30, "expected": 0.55, "high": 0.80},
-        autonomy=dict(TL.AUTONOMY_2026),
+        fee_multiplier=float(cfg.get("fee_multiplier", 2.8)),
+        adoption=cfg.get("adoption", {"low": 0.30, "expected": 0.55, "high": 0.80}),
+        autonomy=autonomy,
         chargeout_rates=b.get("chargeout") or None,    # measured price side
         source=b["source"] + (" (pilot, salary-derived rates)" if real
                               else " (pilot, provisional rates)"))
@@ -424,13 +428,28 @@ def _cost_caveats(rates, people, unmatched, bands_in_use):
     return cav
 
 
-def apply(path, salary_path=None):
+def _load_config(path):
+    """The per-engagement config: elicited inputs and firm-specific assumptions,
+    kept apart from the measured data that comes from the raw files."""
+    import inputs as _inp
+    return _inp._read_config(path) or {}
+
+
+def apply(path, salary_path=None, config_path=None):
     """Ingest a raw export and wire it into the engine (cost inputs + measured
     effort overrides). With a salary file, band rates are derived from real
-    salaries. Returns the build dict for the coverage report and framing."""
+    salaries. An optional engagement config supplies the elicited inputs
+    (adoption, autonomy, fee) and the cost assumptions (on-cost, utilisation,
+    currency). Returns the build dict for the coverage report and framing."""
+    global ON_COST_FACTOR, UTILISATION, CURRENCY
     import model as M
     import cost as C
+    cfg = _load_config(config_path) if config_path else {}
+    ON_COST_FACTOR = float(cfg.get("on_cost_factor", _DEFAULTS["on_cost"]))
+    UTILISATION = float(cfg.get("utilisation", _DEFAULTS["util"]))
+    CURRENCY = cfg.get("currency", _DEFAULTS["currency"])
     b = build(path)
+    b["engagement"] = cfg
     if salary_path:
         raw = read_raw(path)
         rates, people, unmatched = derive_band_rates(raw, load_salaries(salary_path))

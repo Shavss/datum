@@ -437,8 +437,20 @@ distribution, so director cost is understated. These print in the coverage repor
 and as data notes in the deliverable.
 
 Charge-out is never used as cost. Run:
-`python report.py <export>.csv [salaries.csv]` ingests, derives rates if a salary
-file is given, prints the coverage report, and writes the deliverable in one step.
+`python report.py <export>.csv [salaries.csv] [engagement.yaml]` ingests, derives
+rates if a salary file is given, prints the coverage report, and writes the
+deliverable in one step.
+
+**Two input paths, on purpose.** The old `inputs.yaml` schema (`load_inputs`)
+carries measured data and assumptions in one hand-written file; it is the manual
+path and the demo default. For a real engagement the raw-export path supersedes
+its *measured* half: hours, the task split, salary-cost rates and charge-out are
+derived from the firm's own files, so they cannot drift from the source. What is
+left for a per-engagement config (`engagement.yaml`, optional third argument) is
+only the things not in the timesheet: the elicited workshop inputs (`adoption`,
+`autonomy`, `fee_multiplier`) and the firm cost assumptions (`on_cost_factor`,
+`utilisation`, `currency`). Measured data never goes in this file. It carries no
+names or salaries, so it is safe to keep in the repo; the raw exports are not.
 
 ## What to verify first
 

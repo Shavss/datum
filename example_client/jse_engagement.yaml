@@ -1,0 +1,34 @@
+# Engagement config: Raff Architecture / JSE-001 pilot.
+#
+# This file holds ONLY the per-engagement inputs that are NOT in the timesheet:
+# the elicited workshop assumptions and the firm-specific cost assumptions. The
+# MEASURED data (hours, the task split, salary-cost rates, charge-out) is derived
+# from the raw exports by ingest.py and is not repeated here, so it can never
+# drift from the source files.
+#
+# Run:
+#   python report.py example_client/timesheets.csv example_client/salaries.csv \
+#                     example_client/jse_engagement.yaml
+#
+# No salaries or names live here, so this file is safe to keep in the repo. Values
+# marked PLACEHOLDER are defaults to be replaced with the firm's own figures.
+
+currency: "CA$"
+
+# --- cost assumptions (confirm with finance) --------------------------------
+on_cost_factor: 1.20      # employer CPP/EI/benefits/pension over salary + bonus
+utilisation: 0.72         # productive (billable) fraction of paid hours (~1500/2080)
+
+# --- elicited in the workshop (PLACEHOLDER defaults until then) --------------
+fee_multiplier: 2.8       # charge-out / cost; the growth route also uses the
+                          # measured charge-out from the file where present
+
+adoption:                 # how much of the releasable capacity is actually taken up
+  low: 0.30
+  expected: 0.55
+  high: 0.80
+
+autonomy: {}              # per-task overrides in [0,1]; tasks omitted here use the
+                          # 2026 defaults in tooling.py. Fill from the workshop, e.g.
+                          #   Coordinating spatial and technical systems: 0.85
+                          #   Producing technical documentation: 0.80

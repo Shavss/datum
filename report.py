@@ -387,8 +387,10 @@ def main():
         C.set_inputs(ci)
     elif arg and arg.endswith(".csv"):
         import ingest
-        salary = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2].endswith(".csv") else None
-        b = ingest.apply(arg, salary)          # raw export (+ salaries) -> inputs + effort
+        extra = sys.argv[2:]
+        salary = next((a for a in extra if a.endswith(".csv")), None)
+        config = next((a for a in extra if a.endswith((".yaml", ".yml", ".json"))), None)
+        b = ingest.apply(arg, salary, config)  # raw export (+ salaries, + config)
         PILOT = True
         CURRENCY = getattr(ingest, "CURRENCY", CURRENCY)
         print(ingest.coverage_report(b))
