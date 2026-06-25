@@ -1,6 +1,7 @@
 # Generated artefacts (reproduced by run.py / report.py)
 figures/
 datum_report.html
+datum_sample.html
 
 # Python
 __pycache__/

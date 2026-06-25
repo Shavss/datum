@@ -31,7 +31,8 @@ from model import task_catalogue, task_future
 # Set when the data source is a single-project export ingested via ingest.apply,
 # so the report frames itself as a pilot proof rather than a practice diagnostic.
 PILOT = False
-CURRENCY = "&pound;"            # overridden per data source (e.g. CA$ on ingest)
+SAMPLE = False                 # illustrative example on fabricated data, for prospects
+CURRENCY = "&pound;"           # overridden per data source (e.g. CA$ on ingest)
 
 
 def _b64(path):
@@ -238,6 +239,12 @@ def build_html(cat, g, figs):
                      "only). It proves the method end to end on real data; the cost base "
                      "and the practice-wide picture firm up once finance rates and "
                      "further projects are added.</div>") + warn_html
+    if SAMPLE:
+        warn_html = ("<div class=warn><b>Illustrative sample.</b> Every figure here is "
+                     "fabricated demonstration data for a fictional practice, not a real "
+                     "firm. It shows the shape and contents of the deliverable, so you "
+                     "can see what you receive before any of your own data is involved."
+                     "</div>") + warn_html
     F = lambda k: _figure(figs, k)
     yr = "" if g.get("pilot") else " a year"        # one project is not an annual base
     yrk = "measured cost base" if g.get("pilot") else "measured cost base / year"
@@ -359,9 +366,16 @@ AI-readiness diagnostic; the soft inputs are elicited and labelled as such.</p>
 
 
 def main():
-    global PILOT, CURRENCY
+    global PILOT, SAMPLE, CURRENCY
     arg = sys.argv[1] if len(sys.argv) > 1 else None
-    if arg and arg.endswith(".csv"):
+    out = "datum_report.html"
+    if arg == "sample":                        # anonymised illustrative example
+        SAMPLE = True
+        out = "datum_sample.html"
+        ci = _inp.default_inputs()
+        ci.source = "Fictional practice (illustrative)"
+        C.set_inputs(ci)
+    elif arg and arg.endswith(".csv"):
         import ingest
         b = ingest.apply(arg)                  # raw export -> inputs + measured effort
         PILOT = True
@@ -375,7 +389,6 @@ def main():
     g = gather(cat)
     figs = key_figures(cat, g)
     html = build_html(cat, g, figs)
-    out = "datum_report.html"
     with open(out, "w") as f:
         f.write(html)
     cur = CURRENCY.replace("&pound;", "GBP")
