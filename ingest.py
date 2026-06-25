@@ -42,7 +42,8 @@ COL = dict(name=0, date=1, code=2, project=3, role=4, rate=5, hours=6,
 # are essential; rate (charge-out) is optional, used for the measured growth route.
 HEADER_NAMES = {"role": {"role"}, "hours": {"hours", "hrs"},
                 "activity": {"activity", "task"}, "phase": {"phase", "stage"}}
-_OPTIONAL_HEADERS = {"rate": {"rate", "charge-out", "chargeout"}}
+_OPTIONAL_HEADERS = {"rate": {"rate", "charge-out", "chargeout"},
+                     "employee": {"employee", "name", "staff"}}
 
 
 def _resolve_columns(first_row):
@@ -163,7 +164,8 @@ def read_raw(path):
     data = all_rows[1:] if col else all_rows    # skip the header row when found
     col = col or COL                            # else fixed positions
     rate_i = col.get("rate", COL["rate"])       # charge-out, optional
-    need = max(col["role"], col["phase"], col["activity"], col["hours"], rate_i)
+    emp_i = col.get("employee", COL["name"])    # person, for role recovery
+    need = max(col["role"], col["phase"], col["activity"], col["hours"], rate_i, emp_i)
     rows = []
     for r in data:
         if len(r) <= need:
@@ -176,7 +178,8 @@ def read_raw(path):
             rate = float(r[rate_i])
         except (ValueError, IndexError):
             rate = None
-        rows.append(dict(role=r[col["role"]], phase=r[col["phase"]].strip(),
+        rows.append(dict(employee=r[emp_i].strip(), role=r[col["role"]],
+                         phase=r[col["phase"]].strip(),
                          activity=r[col["activity"]].strip(), hours=h, rate=rate))
     return rows
 
@@ -196,11 +199,24 @@ def build(path):
     co_hours = defaultdict(float)       # band -> hours with a charge-out rate
     co_value = defaultdict(float)       # band -> charge-out value (rate x hours)
 
+    # a person's grade, inferred from their own valid rows, so a mis-tagged role
+    # (e.g. "2024") is recovered from who logged it rather than dropped.
+    emp_band_hours = defaultdict(lambda: defaultdict(float))
+    for r in raw:
+        b = _canon_role(r["role"])
+        if b:
+            emp_band_hours[r["employee"]][b] += r["hours"]
+    emp_band = {e: max(bh, key=bh.get) for e, bh in emp_band_hours.items()}
+    recovered = defaultdict(float)      # employee -> hours recovered
+
     for r in raw:
         total += r["hours"]
         band = _canon_role(r["role"])
         stage = PHASE_TO_STAGE.get(r["phase"])
-        if band is None:
+        if band is None and emp_band.get(r["employee"]):
+            band = emp_band[r["employee"]]          # recover from the person
+            recovered[f"{r['employee']} (role '{r['role'].strip()}' -> {band})"] += r["hours"]
+        elif band is None:
             unmapped["role"][r["role"].strip()] += r["hours"]
         else:
             mapped["role"][r["role"].strip()] += r["hours"]
@@ -226,7 +242,8 @@ def build(path):
 
     chargeout = {b: co_value[b] / co_hours[b] for b in co_hours if co_hours[b]}
     return dict(timesheet=timesheet, task_hours=dict(task_hours),
-                mapped=mapped, unmapped=unmapped, total_hours=total,
+                mapped=mapped, unmapped=unmapped, recovered=dict(recovered),
+                total_hours=total,
                 chargeout=chargeout,                       # band -> hours-weighted charge-out
                 notional_value=sum(co_value.values()),     # charge-out value of all time
                 n_rows=len(raw), source=os.path.basename(path))
@@ -253,6 +270,11 @@ def coverage_report(b):
          _section("ROLE -> band", b["mapped"]["role"], b["unmapped"]["role"]),
          _section("PHASE -> RIBA stage", b["mapped"]["phase"], b["unmapped"]["phase"]),
          _section("ACTIVITY -> Bernstein task", b["mapped"]["activity"], b["unmapped"]["activity"])]
+    if b.get("recovered"):
+        L.append("\nROLE recovered from the employee (mis-tagged role backfilled "
+                 "from the person's other rows):")
+        for k, v in sorted(b["recovered"].items(), key=lambda kv: -kv[1]):
+            L.append(f"  ++   {v:8.1f} h  {k}")
     # task split summary
     th = b["task_hours"]
     L.append("\nTASK SPLIT (measured, replaces the even-split placeholder):")
