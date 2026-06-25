@@ -123,6 +123,11 @@ def key_figures(cat, g):
         "savings": (views.fig_savings_bands(),
             "The business case as a band, never a single number: capacity released "
             "under low, expected and high adoption."),
+        "by_band": (views.fig_released_by_band(),
+            "Who the released capacity lands on. The freed time concentrates in the "
+            "bands doing the automatable production work, not evenly across "
+            "seniority, which is what makes the margin route a real staffing "
+            "decision rather than an abstraction."),
         "conversion": (views.fig_capacity_conversion(),
             "Released hours are not money until converted. The margin route avoids "
             "salary cost and needs fewer hours; the growth route re-sells the freed "
@@ -315,6 +320,7 @@ elicited in the workshop, so the case is reported as a band under low, expected 
 adoption, never as a single number.</p>
 {_scenario_table(g)}
 {F('savings')}
+{F('by_band')}
 
 <h2>5 &nbsp; The conversion decision</h2>
 <p>Released capacity is hours. It becomes value only through one of two routes, each with a
@@ -390,6 +396,7 @@ def main():
     elif arg:
         C.set_inputs(_inp.load_inputs(arg))    # a yaml/json client config
     theme.apply_theme()
+    views.set_currency(CURRENCY)               # keep figures in the report's currency
     cat = task_catalogue()
     g = gather(cat)
     figs = key_figures(cat, g)

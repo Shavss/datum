@@ -11,6 +11,15 @@ from model import (steady_state, stage_effort, task_future,
 
 OUT = "figures"
 
+CUR = "£"            # currency symbol used in figures; set via set_currency()
+
+
+def set_currency(sym):
+    """Set the figure currency. '$' is escaped because matplotlib reads a bare
+    '$' as the start of mathtext."""
+    global CUR
+    CUR = sym.replace("&pound;", "£").replace("$", r"\$")
+
 
 def _save(fig, name):
     os.makedirs(OUT, exist_ok=True)
@@ -722,16 +731,16 @@ def fig_cost_saved():
             label="capacity released at expected adoption")
     for i, r in enumerate(rows):
         ax.text(r["cost"]/1e3 + 6, i,
-                f"£{r['saved_cost']/1e3:,.0f}k  ({r['saved_frac']*100:.0f}%)",
+                f"{CUR}{r['saved_cost']/1e3:,.0f}k  ({r['saved_frac']*100:.0f}%)",
                 va="center", fontsize=7.6, color=T.INK)
     ax.set_yticks(ys); ax.set_yticklabels([r["stage"] for r in rows], fontsize=8)
-    ax.set_xlabel("£ thousands per year")
+    ax.set_xlabel(f"{CUR} thousands")
     ax.set_xlim(0, max(r["cost"] for r in rows)/1e3 * 1.2)
     ax.grid(axis="y", visible=False)
     ax.legend(loc="lower right", fontsize=8.5)
     tot = C.totals()["expected"]
     T.titlecard(ax, "Cost per stage, and the capacity AI releases",
-                f"cost base measured £{tot['cost']/1e6:.2f}M/yr; released capacity £{tot['saved_cost']/1e6:.2f}M/yr expected (a projection, not booked saving)")
+                f"cost base measured {CUR}{tot['cost']/1e3:,.0f}k; released capacity {CUR}{tot['saved_cost']/1e3:,.0f}k expected (a projection, not booked saving)")
     return _save(fig, "21_cost_saved.png")
 
 
@@ -740,16 +749,16 @@ def fig_savings_bands():
     import cost as C
     t = C.totals()
     order = ["low", "expected", "high"]
-    vals = [t[k]["saved_cost"]/1e6 for k in order]
+    vals = [t[k]["saved_cost"]/1e3 for k in order]
     pct = [t[k]["saved_cost"]/t[k]["cost"]*100 for k in order]
     cols = [T.MUTED, T.GREEN, T.ACCENT]
     fig, ax = plt.subplots(figsize=(8, 5.5))
     bars = ax.bar(order, vals, color=cols, width=0.6)
     for b, v, p, k in zip(bars, vals, pct, order):
-        ax.text(b.get_x()+b.get_width()/2, v+0.02,
-                f"£{v:.2f}M\n{p:.0f}% of base\n({C.ADOPTION[k]:.0%} adoption)",
+        ax.text(b.get_x()+b.get_width()/2, v+max(vals)*0.02,
+                f"{CUR}{v:,.0f}k\n{p:.0f}% of base\n({C.ADOPTION[k]:.0%} adoption)",
                 ha="center", va="bottom", fontsize=8.5)
-    ax.set_ylabel("£ millions saved per year")
+    ax.set_ylabel(f"{CUR} thousands released")
     ax.set_ylim(0, max(vals)*1.32)
     ax.grid(axis="x", visible=False)
     T.titlecard(ax, "Capacity released depends on adoption",
@@ -795,9 +804,9 @@ def fig_released_by_band():
     fig, ax = plt.subplots(figsize=(9, 5.5))
     bars = ax.bar(bands, vals, color=T.ACCENT, width=0.62)
     for b, v_, h in zip(bars, vals, hrs):
-        ax.text(b.get_x()+b.get_width()/2, v_+1.5,
-                f"£{v_:,.0f}k\n{h:,.0f} h", ha="center", va="bottom", fontsize=8)
-    ax.set_ylabel("£ thousands released per year")
+        ax.text(b.get_x()+b.get_width()/2, v_+max(vals)*0.02,
+                f"{CUR}{v_:,.0f}k\n{h:,.0f} h", ha="center", va="bottom", fontsize=8)
+    ax.set_ylabel(f"{CUR} thousands released")
     ax.set_ylim(0, max(vals)*1.3)
     ax.set_xlabel("band (cost rate rises left to right)")
     ax.grid(axis="x", visible=False)
@@ -818,7 +827,7 @@ def fig_capacity_conversion():
     ax.text(0.5, 0.96, f"The model releases {c['released_hours']:,.0f} hours a year",
             ha="center", fontsize=13, fontweight="bold", color=T.INK,
             transform=ax.transAxes)
-    ax.text(0.5, 0.89, "that is £0 on the books until the firm converts it; doing neither reabsorbs the time",
+    ax.text(0.5, 0.89, f"that is {CUR}0 on the books until the firm converts it; doing neither reabsorbs the time",
             ha="center", fontsize=9.5, color=T.MUTED, transform=ax.transAxes)
 
     def card(x, title, value, cond, col):
@@ -831,9 +840,9 @@ def fig_capacity_conversion():
         ax.text(x+0.18, 0.46, cond, ha="center", va="top", fontsize=8.6,
                 color=T.INK, wrap=True, transform=ax.transAxes)
 
-    card(0.08, "Margin route", f"£{c['margin_value']/1e3:,.0f}k / yr",
+    card(0.08, "Margin route", f"{CUR}{c['margin_value']/1e3:,.0f}k",
          "salary cost avoided.\nRequires running the work\nwith fewer hours or fewer\npeople. Within the firm's\ncontrol, but the hard call.", T.GREEN)
-    card(0.56, "Growth route", f"£{c['growth_value']/1e3:,.0f}k / yr",
+    card(0.56, "Growth route", f"{CUR}{c['growth_value']/1e3:,.0f}k",
          "extra fee from re-selling\nfreed time at charge-out.\nWorth more per hour, but\nneeds a pipeline to absorb\nit. Outside the firm's control.", T.ACCENT)
     ax.text(0.5, 0.06, "same released hours, two values; the decision, not the saving, is the deliverable",
             ha="center", fontsize=8.5, style="italic", color=T.MUTED, transform=ax.transAxes)
