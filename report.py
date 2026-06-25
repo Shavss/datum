@@ -88,7 +88,7 @@ def gather(cat):
         freed_frac=(cur.sum() - fut.sum()),
         blocks=blocks, labels=labels, k=k,
         warnings=getattr(C.INPUTS, "warnings", []), source=C.INPUTS.source,
-        pilot=PILOT)
+        pilot=PILOT, rates_real="salary-derived" in C.INPUTS.source)
 
 
 # ---- the figures the partner sees ------------------------------------------
@@ -233,12 +233,14 @@ def build_html(cat, g, figs):
     warn_html = "".join(
         f"<div class=warn>Data note: {_html.escape(w)}</div>" for w in g["warnings"])
     if g.get("pilot"):
-        warn_html = ("<div class=warn><b>Single-project pilot.</b> This runs on one "
-                     "project's timesheet, not the whole practice, and the salary-cost "
-                     "rates are provisional placeholders (the export carries charge-out "
-                     "only). It proves the method end to end on real data; the cost base "
-                     "and the practice-wide picture firm up once finance rates and "
-                     "further projects are added.</div>") + warn_html
+        rate_note = ("the salary-cost rates are derived from staff salaries (with on-cost "
+                     "and utilisation assumptions noted below)" if g.get("rates_real")
+                     else "the salary-cost rates are provisional placeholders (the export "
+                     "carries charge-out only)")
+        warn_html = (f"<div class=warn><b>Single-project pilot.</b> This runs on one "
+                     f"project's timesheet, not the whole practice, and {rate_note}. It "
+                     f"proves the method end to end on real data; the practice-wide "
+                     f"picture firms up as further projects are added.</div>") + warn_html
     if SAMPLE:
         warn_html = ("<div class=warn><b>Illustrative sample.</b> Every figure here is "
                      "fabricated demonstration data for a fictional practice, not a real "
@@ -379,7 +381,8 @@ def main():
         C.set_inputs(ci)
     elif arg and arg.endswith(".csv"):
         import ingest
-        b = ingest.apply(arg)                  # raw export -> inputs + measured effort
+        salary = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2].endswith(".csv") else None
+        b = ingest.apply(arg, salary)          # raw export (+ salaries) -> inputs + effort
         PILOT = True
         CURRENCY = getattr(ingest, "CURRENCY", CURRENCY)
         print(ingest.coverage_report(b))

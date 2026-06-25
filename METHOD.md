@@ -410,13 +410,35 @@ classification views run on the firm's real effort. `ingest.coverage_report`
 prints every value, where it mapped, and what did not, with the unmapped hours as
 a percentage. **Verify that report before trusting any number.**
 
-**Salary-cost rates are provisional.** The export has charge-out only, so
-`SALARY_COST_RATES` in `ingest.py` is a labelled placeholder. Until finance
-supplies cost rates, the cost base and the margin/growth values are provisional,
-and the report says so in the pilot banner. Charge-out is never used as cost.
+**Salary-cost rates: derived when a salary file is given, else placeholder.** The
+export has charge-out only, so without salaries `SALARY_COST_RATES` is a labelled
+placeholder. When a salary file is supplied (`name, salary, bonus, weekly hours`),
+`derive_band_rates` computes a real hourly cost per person and rolls it up to a
+band rate, hours-weighted:
 
-Run: `python report.py <export>.csv` ingests, prints the coverage report, and
-writes the pilot deliverable in one step.
+```
+hourly_cost = (salary + bonus) * ON_COST_FACTOR / (weekly_hours * 52 * UTILISATION)
+band_rate   = sum_person ( hourly_cost * project_hours ) / sum_person ( project_hours )
+```
+
+People are joined to their band by name through the timesheet (the same role
+recovery as section 11). Only the project team is costed, which is correct for a
+single-project pilot. Two conversion assumptions, both editable and flagged in the
+report, must be confirmed with finance:
+
+- `ON_COST_FACTOR` (1.20) - employer CPP/EI/benefits/pension on top of pay.
+- `UTILISATION` (0.72) - productive (billable) fraction of paid hours.
+
+`_cost_caveats` auto-flags three things: the assumptions themselves; any project
+staff with no salary on file (their band falls back to colleagues or the
+placeholder); and the **owner-pay distortion** - if the Director rate comes out at
+or below the Associate rate, the owner's base salary likely excludes profit
+distribution, so director cost is understated. These print in the coverage report
+and as data notes in the deliverable.
+
+Charge-out is never used as cost. Run:
+`python report.py <export>.csv [salaries.csv]` ingests, derives rates if a salary
+file is given, prints the coverage report, and writes the deliverable in one step.
 
 ## What to verify first
 

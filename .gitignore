@@ -7,10 +7,11 @@ datum_sample.html
 __pycache__/
 *.pyc
 
-# Real client data: never commit to a public repo (real names, rates, projects).
-# The synthetic example_client/inputs.yaml + timesheet.csv stay tracked; this
-# real export does not.
+# Real client data: never commit to a public repo (real names, salaries, rates).
+# The synthetic example_client/inputs.yaml + timesheet.csv stay tracked; the real
+# export and the salary data do not.
 example_client/timesheets.csv
+example_client/salaries.csv
 
 # OS
 .DS_Store

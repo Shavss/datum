@@ -145,6 +145,62 @@ SALARY_COST_RATES = {            # CA$/hour, salary based - PLACEHOLDER, replace
 }
 RATES_ARE_PROVISIONAL = True
 
+# ---- 5. salary -> hourly cost (when a salary file is provided) --------------
+# Real band rates are computed from staff salaries joined to the project team by
+# name. Two conversion assumptions, editable, to confirm with finance:
+ON_COST_FACTOR = 1.20            # employer CPP/EI/benefits/pension over salary+bonus
+UTILISATION = 0.72              # productive (billable) fraction of paid hours (~1500/2080)
+
+
+def load_salaries(path):
+    """name -> (annual cost = salary + bonus, standard weekly hours)."""
+    out = {}
+    with open(path, newline="") as f:
+        for row in csv.DictReader(f):
+            name = (row.get("Employee Name") or "").strip()
+            if not name:
+                continue
+            try:
+                tot = float(row.get("Salary2021") or 0) + float(row.get("Bonus2021") or 0)
+            except ValueError:
+                continue
+            try:
+                ww = float(row.get("StdWorkWeek") or 40)
+            except ValueError:
+                ww = 40.0
+            out[name] = (tot, ww)
+    return out
+
+
+def derive_band_rates(raw, salaries):
+    """Hours-weighted salary-cost rate per band, from the project team's own
+    salaries. Returns (rates, per-person rows, project staff with no salary)."""
+    emp_band_hours = defaultdict(lambda: defaultdict(float))
+    hours = defaultdict(float)
+    for r in raw:
+        b = _canon_role(r["role"])
+        if b:
+            emp_band_hours[r["employee"]][b] += r["hours"]
+        hours[r["employee"]] += r["hours"]
+    emp_band = {e: max(bh, key=bh.get) for e, bh in emp_band_hours.items()}
+    acc = defaultdict(lambda: [0.0, 0.0])      # band -> [sum(cost*h), sum(h)]
+    people, unmatched = [], []
+    for e, h in hours.items():
+        band = emp_band.get(e)
+        if e not in salaries:
+            if band:
+                unmatched.append(e)
+            continue
+        tot, ww = salaries[e]
+        prod = ww * 52 * UTILISATION
+        hc = tot * ON_COST_FACTOR / prod if prod else 0.0
+        people.append(dict(name=e, band=band, cost=hc, hours=h, salary=tot))
+        if band and prod:
+            acc[band][0] += hc * h
+            acc[band][1] += h
+    rates = {b: a[0] / a[1] for b, a in acc.items() if a[1]}
+    return rates, people, unmatched
+
 
 def _canon_role(raw):
     """Strip year tags and whitespace, then look up. Returns (band or None)."""
@@ -292,29 +348,48 @@ def coverage_report(b):
                 L.append(f"  {CURRENCY}{co[band]:6.0f}/h  {band}{ratio}")
         L.append(f"  ---- notional fee value of all time: {CURRENCY}{b['notional_value']:,.0f}. "
                  f"Used to value the growth route at real rates.")
-    if RATES_ARE_PROVISIONAL:
+    # salary-derived cost rates (the real cost side, when a salary file is given)
+    rates = b.get("cost_rates")
+    if rates:
+        L.append(f"\nSALARY-COST RATES (derived from staff salaries joined by name; "
+                 f"on-cost x{ON_COST_FACTOR}, utilisation {UTILISATION:.0%}):")
+        for band in ["Part I", "Part II", "Architect", "Associate", "Director"]:
+            if band in rates:
+                ph = SALARY_COST_RATES.get(band)
+                vs = f"  (placeholder was {ph})" if ph else ""
+                L.append(f"  {CURRENCY}{rates[band]:6.0f}/h  {band}{vs}")
+        for c in b.get("cost_caveats", []):
+            L.append(f"  !! {c}")
+    elif RATES_ARE_PROVISIONAL:
         L.append("\nNOTE: salary-cost rates are PROVISIONAL placeholders (the export has "
-                 "charge-out only).\n      Replace SALARY_COST_RATES with finance figures "
-                 "before the cost base is real.")
+                 "charge-out only).\n      Provide a salary file, or replace "
+                 "SALARY_COST_RATES, before the cost base is real.")
     return "\n".join(L)
 
 
 # ---- bridge to the engine --------------------------------------------------
 def to_client_inputs(b):
-    """A validated ClientInputs from the mapped export: real hours, provisional
-    salary-cost rates, default elicited assumptions (replaced in the workshop)."""
+    """A validated ClientInputs from the mapped export. Band rates are the
+    salary-derived rates when a salary file was provided (falling back to the
+    placeholder for any band with no salary on file), else the placeholders."""
     import inputs as _inp
     import tooling as TL
+    derived = b.get("cost_rates") or {}
+    rates = dict(SALARY_COST_RATES)
+    rates.update(derived)                       # derived overrides placeholder per band
+    real = bool(derived)
     ci = _inp.ClientInputs(
         timesheet=b["timesheet"],
-        band_rates=dict(SALARY_COST_RATES),
+        band_rates=rates,
         fee_multiplier=2.8,
         adoption={"low": 0.30, "expected": 0.55, "high": 0.80},
         autonomy=dict(TL.AUTONOMY_2026),
         chargeout_rates=b.get("chargeout") or None,    # measured price side
-        source=b["source"] + (" (pilot, provisional rates)" if RATES_ARE_PROVISIONAL
-                              else " (pilot)"))
-    return _inp.validate(ci)
+        source=b["source"] + (" (pilot, salary-derived rates)" if real
+                              else " (pilot, provisional rates)"))
+    ci = _inp.validate(ci)
+    ci.warnings = list(b.get("cost_caveats", [])) + ci.warnings
+    return ci
 
 
 def stage_hours_array(b):
@@ -327,12 +402,43 @@ def stage_hours_array(b):
     return arr
 
 
-def apply(path):
+def _cost_caveats(rates, people, unmatched, bands_in_use):
+    """Plain-language flags on the salary-derived cost base."""
+    cav = [f"cost rates derived from {len(people)} staff salaries; conversion "
+           f"assumptions are on-cost x{ON_COST_FACTOR} and utilisation "
+           f"{UTILISATION:.0%} of paid hours (confirm with finance)"]
+    if unmatched:
+        cav.append(f"{len(unmatched)} project staff have no salary on file "
+                   f"({', '.join(sorted(unmatched))}); their band uses the rate from "
+                   f"colleagues, or the placeholder if none")
+    miss = [b for b in bands_in_use if b not in rates]
+    if miss:
+        cav.append(f"no salary on file for any {', '.join(miss)} staff; that band "
+                   f"uses the provisional placeholder rate")
+    if rates.get("Director") and rates.get("Associate") and \
+            rates["Director"] <= rates["Associate"]:
+        cav.append(f"Director rate ({CURRENCY}{rates['Director']:.0f}) is at or below "
+                   f"Associate ({CURRENCY}{rates['Associate']:.0f}): owner base salary "
+                   f"likely excludes profit distribution, so director cost is understated "
+                   f"- confirm how the firm costs director time")
+    return cav
+
+
+def apply(path, salary_path=None):
     """Ingest a raw export and wire it into the engine (cost inputs + measured
-    effort overrides). Returns the build dict for the coverage report and framing."""
+    effort overrides). With a salary file, band rates are derived from real
+    salaries. Returns the build dict for the coverage report and framing."""
     import model as M
     import cost as C
     b = build(path)
+    if salary_path:
+        raw = read_raw(path)
+        rates, people, unmatched = derive_band_rates(raw, load_salaries(salary_path))
+        bands_in_use = {r["band"] for r in b["timesheet"]}
+        b["cost_rates"] = rates
+        b["cost_people"] = people
+        b["cost_unmatched"] = unmatched
+        b["cost_caveats"] = _cost_caveats(rates, people, unmatched, bands_in_use)
     C.set_inputs(to_client_inputs(b))
     M.set_measured(stage_hours=stage_hours_array(b), task_hours=b["task_hours"])
     return b
@@ -341,7 +447,15 @@ def apply(path):
 if __name__ == "__main__":
     import sys
     if len(sys.argv) < 2:
-        print("usage: python ingest.py <raw_timesheet.csv>")
+        print("usage: python ingest.py <raw_timesheet.csv> [salaries.csv]")
         raise SystemExit(1)
     b = build(sys.argv[1])
+    if len(sys.argv) > 2:
+        raw = read_raw(sys.argv[1])
+        rates, people, unmatched = derive_band_rates(raw, load_salaries(sys.argv[2]))
+        bands_in_use = {r["band"] for r in b["timesheet"]}
+        b["cost_rates"] = rates
+        b["cost_people"] = people
+        b["cost_unmatched"] = unmatched
+        b["cost_caveats"] = _cost_caveats(rates, people, unmatched, bands_in_use)
     print(coverage_report(b))
