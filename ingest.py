@@ -29,9 +29,31 @@ from collections import defaultdict
 
 import bernstein as B
 
-# ---- column layout of this export (0-indexed, no header row) ---------------
+# ---- column layout ---------------------------------------------------------
+# The canonical export columns, in order. Some exports ship this as a header row
+# (Employee, Date, Project#, Project Name, Role, Rate, Hours, Value, Activity,
+# Billable, Phase, Fee Type, Note); others ship raw with no header. When a header
+# is present its names are used (robust to reordering); otherwise these fixed
+# positions apply. Either way the engine only needs role, phase, activity, hours.
 COL = dict(name=0, date=1, code=2, project=3, role=4, rate=5, hours=6,
            amount=7, activity=8, billable=9, phase=10, feetype=11, desc=12)
+
+# field -> header names that identify it (lowercased). Only the four we consume.
+HEADER_NAMES = {"role": {"role"}, "hours": {"hours", "hrs"},
+                "activity": {"activity", "task"}, "phase": {"phase", "stage"}}
+
+
+def _resolve_columns(first_row):
+    """If first_row looks like a header, return field->index by name; else None
+    and the fixed COL positions are used."""
+    low = [c.strip().lower() for c in first_row]
+    idx = {}
+    for field, names in HEADER_NAMES.items():
+        for i, c in enumerate(low):
+            if c in names:
+                idx[field] = i
+                break
+    return idx if all(f in idx for f in HEADER_NAMES) else None
 
 
 # ---- 1. ROLE -> Datum band -------------------------------------------------
@@ -131,17 +153,24 @@ def _canon_role(raw):
 
 
 def read_raw(path):
-    rows = []
     with open(path, newline="") as f:
-        for r in csv.reader(f):
-            if len(r) <= COL["desc"]:
-                continue
-            try:
-                h = float(r[COL["hours"]])
-            except ValueError:
-                continue
-            rows.append(dict(role=r[COL["role"]], phase=r[COL["phase"]].strip(),
-                             activity=r[COL["activity"]].strip(), hours=h))
+        all_rows = list(csv.reader(f))
+    if not all_rows:
+        return []
+    col = _resolve_columns(all_rows[0])         # by header name, if present
+    data = all_rows[1:] if col else all_rows    # skip the header row when found
+    col = col or COL                            # else fixed positions
+    need = max(col["role"], col["phase"], col["activity"], col["hours"])
+    rows = []
+    for r in data:
+        if len(r) <= need:
+            continue
+        try:
+            h = float(r[col["hours"]])          # also skips any stray header / junk
+        except ValueError:
+            continue
+        rows.append(dict(role=r[col["role"]], phase=r[col["phase"]].strip(),
+                         activity=r[col["activity"]].strip(), hours=h))
     return rows
 
 
