@@ -50,10 +50,24 @@ class ClientInputs:
     autonomy: dict                  # task -> [0,1], full coverage of VALID_TASKS
     source: str = "default"
     warnings: list = field(default_factory=list)
+    chargeout_rates: dict = None    # band -> charge-out/hour, MEASURED from the
+                                    # export's rate column; None -> use fee_multiplier
 
     @property
     def bands(self):
         return list(self.band_rates)
+
+    def effective_multiplier(self):
+        """Hours-weighted charge-out / cost, when charge-out is measured; else the
+        flat fee_multiplier. The real number replaces the assumption."""
+        if not self.chargeout_rates:
+            return self.fee_multiplier
+        hrs = {b: 0.0 for b in self.band_rates}
+        for r in self.timesheet:
+            hrs[r["band"]] = hrs.get(r["band"], 0.0) + r["hours"]
+        co = sum(self.chargeout_rates.get(b, 0) * h for b, h in hrs.items())
+        cost = sum(self.band_rates.get(b, 0) * h for b, h in hrs.items())
+        return co / cost if cost else self.fee_multiplier
 
 
 # ---- validation ------------------------------------------------------------
@@ -107,6 +121,13 @@ def validate(ci):
             errs.append(f"autonomy: '{t}' is not a known task")
         elif not 0 <= _num(v, f"autonomy[{t}]") <= 1:
             errs.append(f"autonomy[{t}] must be in [0,1], got {v}")
+
+    if ci.chargeout_rates:
+        for b, r in ci.chargeout_rates.items():
+            if b not in ci.band_rates:
+                errs.append(f"chargeout_rates[{b}] has no matching cost band")
+            elif _num(r, f"chargeout_rates[{b}]") <= 0:
+                errs.append(f"chargeout_rates[{b}] must be positive, got {r}")
 
     for s, h in seen_stage_hours.items():
         if h == 0:

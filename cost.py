@@ -85,13 +85,24 @@ def totals(ci=None):
 
 def conversion(scenario="expected", ci=None):
     """Released hours are not money until converted. Two routes, each with a
-    precondition; doing neither reabsorbs the time."""
+    precondition; doing neither reabsorbs the time. The growth route uses the
+    firm's measured charge-out rates per band when present (freed hours valued at
+    what they would bill), and falls back to the flat fee_multiplier otherwise."""
     ci = ci or INPUTS
     t = totals(ci)[scenario]
     rc, rh = t["saved_cost"], t["saved_hours"]
+    if ci.chargeout_rates:
+        bb = by_band(ci.adoption[scenario], ci)
+        growth = sum(bb[b]["saved_hours"] * ci.chargeout_rates.get(b, 0) for b in bb)
+        measured = True
+    else:
+        growth = rc * ci.fee_multiplier
+        measured = False
     return dict(released_hours=rh,
                 margin_value=rc,                       # salary cost avoided
-                growth_value=rc * ci.fee_multiplier,   # extra fee if re-sold
+                growth_value=growth,                   # extra fee if re-sold
+                growth_measured=measured,
+                multiplier=ci.effective_multiplier(),
                 cost=t["cost"])
 
 

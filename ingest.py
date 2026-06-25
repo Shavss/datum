@@ -38,9 +38,11 @@ import bernstein as B
 COL = dict(name=0, date=1, code=2, project=3, role=4, rate=5, hours=6,
            amount=7, activity=8, billable=9, phase=10, feetype=11, desc=12)
 
-# field -> header names that identify it (lowercased). Only the four we consume.
+# field -> header names that identify it (lowercased). role/hours/activity/phase
+# are essential; rate (charge-out) is optional, used for the measured growth route.
 HEADER_NAMES = {"role": {"role"}, "hours": {"hours", "hrs"},
                 "activity": {"activity", "task"}, "phase": {"phase", "stage"}}
+_OPTIONAL_HEADERS = {"rate": {"rate", "charge-out", "chargeout"}}
 
 
 def _resolve_columns(first_row):
@@ -48,7 +50,7 @@ def _resolve_columns(first_row):
     and the fixed COL positions are used."""
     low = [c.strip().lower() for c in first_row]
     idx = {}
-    for field, names in HEADER_NAMES.items():
+    for field, names in {**HEADER_NAMES, **_OPTIONAL_HEADERS}.items():
         for i, c in enumerate(low):
             if c in names:
                 idx[field] = i
@@ -160,7 +162,8 @@ def read_raw(path):
     col = _resolve_columns(all_rows[0])         # by header name, if present
     data = all_rows[1:] if col else all_rows    # skip the header row when found
     col = col or COL                            # else fixed positions
-    need = max(col["role"], col["phase"], col["activity"], col["hours"])
+    rate_i = col.get("rate", COL["rate"])       # charge-out, optional
+    need = max(col["role"], col["phase"], col["activity"], col["hours"], rate_i)
     rows = []
     for r in data:
         if len(r) <= need:
@@ -169,8 +172,12 @@ def read_raw(path):
             h = float(r[col["hours"]])          # also skips any stray header / junk
         except ValueError:
             continue
+        try:
+            rate = float(r[rate_i])
+        except (ValueError, IndexError):
+            rate = None
         rows.append(dict(role=r[col["role"]], phase=r[col["phase"]].strip(),
-                         activity=r[col["activity"]].strip(), hours=h))
+                         activity=r[col["activity"]].strip(), hours=h, rate=rate))
     return rows
 
 
@@ -186,6 +193,8 @@ def build(path):
     mapped = dict(role=defaultdict(float), phase=defaultdict(float),
                   activity=defaultdict(float))
     total = 0.0
+    co_hours = defaultdict(float)       # band -> hours with a charge-out rate
+    co_value = defaultdict(float)       # band -> charge-out value (rate x hours)
 
     for r in raw:
         total += r["hours"]
@@ -202,6 +211,9 @@ def build(path):
 
         if band is not None and stage is not None:
             timesheet.append(dict(band=band, stage=stage, hours=r["hours"]))
+        if band is not None and r.get("rate"):
+            co_hours[band] += r["hours"]
+            co_value[band] += r["rate"] * r["hours"]
 
         act = r["activity"]
         if act in _NO_TASK:
@@ -212,8 +224,11 @@ def build(path):
         else:
             unmapped["activity"][act] += r["hours"]
 
+    chargeout = {b: co_value[b] / co_hours[b] for b in co_hours if co_hours[b]}
     return dict(timesheet=timesheet, task_hours=dict(task_hours),
                 mapped=mapped, unmapped=unmapped, total_hours=total,
+                chargeout=chargeout,                       # band -> hours-weighted charge-out
+                notional_value=sum(co_value.values()),     # charge-out value of all time
                 n_rows=len(raw), source=os.path.basename(path))
 
 
@@ -244,6 +259,17 @@ def coverage_report(b):
     for t, h in sorted(th.items(), key=lambda kv: -kv[1]):
         L.append(f"  {h:8.0f} h  {t}")
     L.append(f"  ---- {sum(th.values()):,.0f} h assigned to {len(th)} of {len(B.TASK_STAGE)} tasks")
+    # measured charge-out (price side, from the rate column)
+    co = b.get("chargeout") or {}
+    if co:
+        L.append(f"\nCHARGE-OUT (measured from the rate column; the price side, not cost):")
+        for band in ["Part I", "Part II", "Architect", "Associate", "Director"]:
+            if band in co:
+                cost = SALARY_COST_RATES.get(band)
+                ratio = f"  ({co[band]/cost:.1f}x provisional cost)" if cost else ""
+                L.append(f"  {CURRENCY}{co[band]:6.0f}/h  {band}{ratio}")
+        L.append(f"  ---- notional fee value of all time: {CURRENCY}{b['notional_value']:,.0f}. "
+                 f"Used to value the growth route at real rates.")
     if RATES_ARE_PROVISIONAL:
         L.append("\nNOTE: salary-cost rates are PROVISIONAL placeholders (the export has "
                  "charge-out only).\n      Replace SALARY_COST_RATES with finance figures "
@@ -263,6 +289,7 @@ def to_client_inputs(b):
         fee_multiplier=2.8,
         adoption={"low": 0.30, "expected": 0.55, "high": 0.80},
         autonomy=dict(TL.AUTONOMY_2026),
+        chargeout_rates=b.get("chargeout") or None,    # measured price side
         source=b["source"] + (" (pilot, provisional rates)" if RATES_ARE_PROVISIONAL
                               else " (pilot)"))
     return _inp.validate(ci)

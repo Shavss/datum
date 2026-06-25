@@ -196,10 +196,24 @@ converted, by one of two routes:
 
 ```
 margin_value = saved_cost                        # salary cost avoided (fewer hours)
-growth_value = saved_cost * fee_multiplier       # freed time re-sold as fee
+growth_value = sum_band ( released_hours_band * chargeout_rate_band )   # measured, if present
+             = saved_cost * fee_multiplier        # else the assumed multiplier
 ```
 
-- `fee_multiplier` (default 2.8, elicited per firm) is charge-out over cost.
+- The **margin route** is salary cost avoided. It needs the measured salary-cost
+  rates (`band_rates`), so it is only real once finance supplies them.
+- The **growth route** is the freed time re-sold as fee. When the export carries a
+  charge-out rate column, the adapter passes `chargeout_rates` per band (measured,
+  hours-weighted) and the growth route values each freed hour at what it actually
+  bills. With no charge-out data it falls back to `saved_cost * fee_multiplier`.
+- `fee_multiplier` (default 2.8) is the assumed charge-out / cost ratio.
+  `ClientInputs.effective_multiplier()` reports the **measured** ratio (weighted
+  charge-out / weighted cost) when both sides are known, replacing the assumption
+  with a fact about the firm.
+- Charge-out is the *price* side. It is never used as cost: it cannot give salary
+  cost (charge-out to cost needs the very multiplier we would be deriving). For
+  fixed-fee work the charge-out value is notional (time at standard rates), which
+  is exactly the right basis for "what is the freed capacity worth if resold".
 - Doing neither route reabsorbs the time and books nothing. The output is a
   decision, not a promise.
 

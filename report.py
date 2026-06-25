@@ -316,10 +316,12 @@ adoption, never as a single number.</p>
 
 <h2>5 &nbsp; The conversion decision</h2>
 <p>Released capacity is hours. It becomes value only through one of two routes, each with a
-precondition.</p>
+precondition.{(" The growth route is valued at the firm's own measured charge-out rates "
+  "(a charge-out to cost ratio of " + f"{cv['multiplier']:.1f}x" + "), taken from the rate "
+  "column, not an assumed multiplier.") if cv.get('growth_measured') else ""}</p>
 <div class=kpis>
 <div class=kpi><span class=n>{_gbp(cv['margin_value'])}</span><span class=l>Margin route: salary cost avoided. Needs fewer hours booked. In the firm's control.</span></div>
-<div class=kpi><span class=n>{_gbp(cv['growth_value'])}</span><span class=l>Growth route: freed time re-sold as fee. Worth more per hour, needs a pipeline.</span></div>
+<div class=kpi><span class=n>{_gbp(cv['growth_value'])}</span><span class=l>Growth route: freed time re-sold as fee{(" at your measured charge-out" if cv.get('growth_measured') else "")}. Worth more per hour, needs a pipeline.</span></div>
 </div>
 {F('conversion')}
 
